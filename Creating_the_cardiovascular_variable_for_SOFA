@@ -1,0 +1,119 @@
+# Selecting variables
+
+## Dopamine (itemid=221662): 
+sql = query_schema + """
+SELECT stay_id, itemid, rate, starttime, endtime
+FROM mimiciv.Inputevents icu 
+WHERE itemid=221662
+"""
+dopamine_rate = pd.read_sql_query(sql,conn)
+
+## Dobutamine (itemid=221653): 
+sql = query_schema + """
+SELECT stay_id, itemid, rate, starttime, endtime
+FROM mimiciv.Inputevents icu 
+WHERE itemid=221653
+"""
+dobutamine_rate = pd.read_sql_query(sql,conn)
+
+## Epinephrine (itemid=221289):
+sql = query_schema + """
+SELECT stay_id, itemid, rate, starttime, endtime
+FROM mimiciv.Inputevents icu 
+WHERE itemid=221289
+"""
+epinephrine_rate = pd.read_sql_query(sql,conn)
+
+## Norepinephrine (itemid=221906):
+sql = query_schema + """
+SELECT stay_id, itemid, rate, starttime, endtime
+FROM mimiciv.Inputevents icu 
+WHERE itemid=221906
+"""
+norepinephrine_rate = pd.read_sql_query(sql,conn)
+
+## MBP (itemid=220181): 
+sql = query_schema + """
+SELECT stay_id, itemid, valuenum, charttime
+FROM mimiciv.chartevents icu 
+WHERE itemid=220181
+"""
+bp = pd.read_sql_query(sql,conn)
+
+## Dopamine: Creating new rate, starttime, and endtime variables to make merging easier.
+dopamine_rate = dopamine_rate.assign(dopamine_rate=dopamine_rate["rate"], 
+                                     dopamine_starttime=dopamine_rate["starttime"],
+                                    dopamine_endtime=dopamine_rate["endtime"])
+## dropping the old variables
+dopamine_rate = dopamine_rate.drop(["rate", "itemid", "starttime", "endtime"], axis=1)
+
+## sorting by stay_id and dopamine_rate by descending values
+dopamine_rate.sort_values(by=["stay_id", "dopamine_rate"], ascending=False)
+
+## dropping repeated stay_ids (keeping max dopamine_rate value)
+dopamine_rate.drop_duplicates(subset="stay_id", keep="first")
+
+## Dobutamine:
+dobutamine_rate = dobutamine_rate.assign(dobutamine_rate=dobutamine_rate["rate"],
+                                        dobutamine_starttime=dobutamine_rate["starttime"],
+                                        dobutamine_endtime=dobutamine_rate["endtime"])
+dobutamine_rate = dobutamine_rate.drop(["rate", "itemid", "starttime", "endtime"], axis=1)
+dobutamine_rate.sort_values(by=["stay_id", "dobutamine_rate"], ascending=False)
+dobutamine_rate.drop_duplicates(subset="stay_id", keep="first")
+
+## Epinephrine:
+epinephrine_rate = epinephrine_rate.assign(epinephrine_rate=epinephrine_rate["rate"],
+                                          epinephrine_starttime=epinephrine_rate["starttime"],
+                                          epinephrine_endtime=epinephrine_rate["endtime"])
+epinephrine_rate = epinephrine_rate.drop(["rate", "itemid", "starttime", "endtime"], axis=1)
+epinephrine_rate.sort_values(by=["stay_id", "epinephrine_rate"], ascending=False)
+epinephrine_rate.drop_duplicates(subset="stay_id", keep="first")
+
+## Norepinephrine:
+norepinephrine_rate = norepinephrine_rate.assign(norepinephrine_rate=norepinephrine_rate["rate"],
+                                                norepinephrine_starttime=norepinephrine_rate["starttime"],
+                                                norepinephrine_endtime=norepinephrine_rate["endtime"])
+norepinephrine_rate = norepinephrine_rate.drop(["rate", "itemid", "starttime", "endtime"], axis=1)
+norepinephrine_rate.sort_values(by=["stay_id", "norepinephrine_rate"], ascending=False)
+norepinephrine_rate.drop_duplicates(subset="stay_id", keep="first")
+
+## Mean blood pressure
+bp = bp.assign(bp=bp["valuenum"], bp_charttime=bp["charttime"])
+bp = bp.drop(["valuenum", "itemid", "charttime"], axis=1)
+bp.loc[(bp["bp"] <= 0) | (bp["bp"] >=300), "bp"] = np.nan # drops bp below 0 or above 300
+grouped_bp = bp.groupby("stay_id")
+mbp = grouped_bp.mean()
+
+## merges dopamine and dobutamine
+merge1 = dopamine_rate.merge(dobutamine_rate, how="inner", on="stay_id")
+## merges epinephrine and norepinephrine
+merge2 = epinephrine_rate.merge(norepinephrine_rate, how="inner", on="stay_id")
+## merges the two merged datasets
+cardio = merge1.merge(merge2, how="inner", on="stay_id")
+cardio_df = cardio.merge(mbp, how="inner", on="stay_id")
+
+## noripinephrine repeats didn't drop so I'm redoing those:
+cardio_df.sort_values(by=["stay_id", "norepinephrine_rate"], ascending=False)
+cardio_df_final = cardio_df.drop_duplicates(subset="stay_id", keep="first")
+## This is the final dataset with all of the cardiovascular variables. "bp" is the mean bp variable.
+
+## This creates a cardiovascular variable that will be used to find the SOFA score.
+cardio_df_final.loc[(cardio_df_final["dopamine_rate"] > 15) | 
+              (cardio_df_final["epinephrine_rate"] > 0.1) | 
+              (cardio_df_final["norepinephrine_rate"] > 0.1), "cardiovascular"] = 4  
+
+cardio_df_final.loc[((cardio_df_final["dopamine_rate"] > 5) & 
+               (cardio_df_final["dopamine_rate"] <= 15)) | 
+              (cardio_df_final["epinephrine_rate"] <= 0.1) | 
+              (cardio_df_final["norepinephrine_rate"] > 0.1), "cardiovascular"] = 3
+
+cardio_df_final.loc[(cardio_df_final["dopamine_rate"] > 0) & 
+              (cardio_df_final["dopamine_rate"] <= 5) | 
+              (cardio_df_final["dobutamine_rate"] > 0) & 
+              (cardio_df_final["cardiovascular"] != 3.0) & 
+              (cardio_df_final["cardiovascular"] != 4.0), "cardiovascular"] = 2
+
+cardio_df_final.loc[(cardio_df_final["bp"] < 70) & 
+              (cardio_df_final["cardiovascular"] != 2.0) &
+              (cardio_df_final["cardiovascular"] != 3.0) & 
+              (cardio_df_final["cardiovascular"] != 4.0), "cardiovascular"] = 1
