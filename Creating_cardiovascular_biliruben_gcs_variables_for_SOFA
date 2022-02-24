@@ -117,3 +117,74 @@ cardio_df_final.loc[(cardio_df_final["bp"] < 70) &
               (cardio_df_final["cardiovascular"] != 2.0) &
               (cardio_df_final["cardiovascular"] != 3.0) & 
               (cardio_df_final["cardiovascular"] != 4.0), "cardiovascular"] = 1
+
+## total Biliruben (itemid=50885)
+sql = query_schema + """
+SELECT subject_id, itemid, charttime, valuenum
+FROM mimiciv.labevents icu 
+WHERE itemid=50885
+"""
+Biliruben = pd.read_sql_query(sql,conn)
+
+Biliruben = Biliruben.assign(Biliruben=Biliruben["valuenum"],
+                                          Biliruben_charttime=Biliruben["charttime"])
+Biliruben = Biliruben.drop(["valuenum", "itemid", "charttime"], axis=1)
+Biliruben.sort_values(by=["subject_id", "Biliruben"], ascending=False)
+Biliruben.drop_duplicates(subset="subject_id", keep="first")
+
+Biliruben.loc[(Biliruben["Biliruben"] >= 12.0), "liver"] = 4
+Biliruben.loc[(Biliruben["Biliruben"] >= 6.0) & (Biliruben["Biliruben"] < 12.0), "liver"] = 3
+Biliruben.loc[(Biliruben["Biliruben"] >= 2.0) & (Biliruben["Biliruben"] < 6.0), "liver"] = 2
+Biliruben.loc[(Biliruben["Biliruben"] >= 1.2) & (Biliruben["Biliruben"] < 2.0), "liver"] = 1
+Biliruben.loc[(Biliruben["Biliruben"] < 1.2), "liver"] = 0
+
+## GCS-verbal response (itemid=223900)
+sql = query_schema + """
+SELECT subject_id, stay_id, itemid, charttime, valuenum
+FROM mimiciv.chartevents icu 
+WHERE itemid=223900
+"""
+gcs_vr = pd.read_sql_query(sql,conn)
+
+## GCS-motor response (itemid=223901)
+sql = query_schema + """
+SELECT subject_id, stay_id, itemid, charttime, valuenum
+FROM mimiciv.chartevents icu 
+WHERE itemid=223901
+"""
+gcs_mr = pd.read_sql_query(sql,conn)
+
+## GCS-eye opening (itemid=220739)
+sql = query_schema + """
+SELECT subject_id, stay_id, itemid, charttime, valuenum
+FROM mimiciv.chartevents icu 
+WHERE itemid=220739
+"""
+gcs_eo = pd.read_sql_query(sql,conn)
+
+gcs_vr = gcs_vr.assign(gcs_vr=gcs_vr["valuenum"], gcs_vr_charttime=gcs_vr["charttime"])
+gcs_vr = gcs_vr.drop(["valuenum", "itemid", "charttime"], axis=1)
+gcs_vr.sort_values(by=["subject_id", "stay_id", "gcs_vr"], ascending=True) # need the min value so ascending=TRUE
+gcs_vr.drop_duplicates(subset="stay_id", keep="first")
+
+gcs_mr = gcs_mr.assign(gcs_mr=gcs_mr["valuenum"], gcs_mr_charttime=gcs_mr["charttime"])
+gcs_mr = gcs_mr.drop(["valuenum", "itemid", "charttime"], axis=1)
+gcs_mr.sort_values(by=["subject_id", "stay_id", "gcs_mr"], ascending=True) # need the min value so ascending=TRUE
+gcs_mr.drop_duplicates(subset="stay_id", keep="first")
+
+gcs_eo = gcs_eo.assign(gcs_eo=gcs_eo["valuenum"], gcs_eo_charttime=gcs_eo["charttime"])
+gcs_eo = gcs_eo.drop(["valuenum", "itemid", "charttime"], axis=1)
+gcs_eo.sort_values(by=["subject_id", "stay_id", "gcs_eo"], ascending=True) # need the min value so ascending=TRUE
+gcs_eo.drop_duplicates(subset="stay_id", keep="first")
+
+## merges gcs_vr and gcs_mr
+merge = gcs_vr.merge(gcs_mr, how="inner", on="stay_id")
+## merges all gcs variables into one dataset
+gcs = merge.merge(gcs_eo, how="inner", on="stay_id")
+
+gcs = bp.gcs(gcs=gcs["gcs_vr"]+gcs["gcs_mr"]+gcs["gcs_eo"])
+
+gcs.loc[(gcs["gcs"] >= 13.0) & (gcs["gcs"] <= 14.0), "cns"] = 1
+gcs.loc[(gcs["gcs"] >= 10.0) & (gcs["gcs"] <= 12.0), "cns"] = 2
+gcs.loc[(gcs["gcs"] >= 6.0) & (gcs["gcs"] <= 9.0), "cns"] = 3
+gcs.loc[(gcs["gcs"] < 6.0), "cns"] = 4
