@@ -188,3 +188,23 @@ gcs.loc[(gcs["gcs"] >= 13.0) & (gcs["gcs"] <= 14.0), "cns"] = 1
 gcs.loc[(gcs["gcs"] >= 10.0) & (gcs["gcs"] <= 12.0), "cns"] = 2
 gcs.loc[(gcs["gcs"] >= 6.0) & (gcs["gcs"] <= 9.0), "cns"] = 3
 gcs.loc[(gcs["gcs"] < 6.0), "cns"] = 4
+
+## Platelets (itemid=51265)
+sql = query_schema + """
+SELECT subject_id, labevent_id, itemid, charttime, valuenum
+FROM mimiciv.labevents hosp 
+WHERE itemid=51265
+"""
+platelets = pd.read_sql_query(sql,conn)
+
+platelets = platelets.assign(platelets=platelets["valuenum"], platelets_charttime=platelets["charttime"])
+platelets = platelets.drop(["valuenum", "itemid", "charttime"], axis=1)
+platelets.sort_values(by=["subject_id", "labevent_id", "platelets"], ascending=True) # need the min value so ascending=TRUE
+platelets.drop_duplicates(subset="labevent_id", keep="first")
+
+# Scoring coagulation
+platelets.loc[(platelets["platelets"] <20.0), "coagulation"] = 4
+platelets.loc[(platelets["platelets"] < 50.0) & (platelets["platelets"] >= 20.0), "coagulation"] = 3
+platelets.loc[(platelets["platelets"] < 100.0) & (platelets["platelets"] >= 50.0), "coagulation"] = 2
+platelets.loc[(platelets["platelets"] < 150.0) & (platelets["platelets"] >= 100.0), "coagulation"] = 1
+platelets.loc[(platelets["platelets"] >=150.0), "coagulation"] = 0
