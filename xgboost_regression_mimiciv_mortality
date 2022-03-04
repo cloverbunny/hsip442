@@ -1,0 +1,16 @@
+mortality_model = XGBRegressor(n_estimators=1000, subsample=1, max_depth=5, eta=0.01, colsample_bytree=1)
+# n_estimators are the number of trees in the ensemble
+# max_depth is the maximum depth of each tree
+# eta is the learning rate used to weight each model
+# subsample is the number of samples used in each tree
+# colsample_bytree is the number of vars used in each tree
+predictors, outcome = mimiciv[:, :-2], mimiciv["hospital_expire_flag"]
+
+kfold = RepeatedKFold(n_splits=10, random_state=1, n_repeats=3)
+# evaluate model using kfold with 10 folds and 3 repeats
+model_evaluation = cross_val_score(mortality_model, predictors, outcome, scoring="neg_mean_absolute_error", cv=kfold, n_jobs=-1)
+# Model is evaluated using mean square error.
+MAE = absolute(model_evaluation)
+print("Mean MAE: %.3f (%.3f)" % (scores.mean(), scores.std()))
+# This finds the mean absolute error of the model. Best models have MAE score of around 1.9. 
+# Model with current parameters has MAE score of 3.8.
