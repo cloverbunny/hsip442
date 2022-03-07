@@ -1,0 +1,4 @@
+table <- matrix(c(67718, 46245, 7552, 2646, 1972,
+                  8822, 5556, 786, 245, 285),
+                nrow = 5, ncol = 2)
+chisq.test(table, correct=FALSE)
